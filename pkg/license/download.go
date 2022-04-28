@@ -139,18 +139,13 @@ func (ddi *DefaultDownloaderImpl) SetOptions(opts *DownloaderOptions) {
 
 // GetLicenses downloads the main json file listing all SPDX supported licenses
 func (ddi *DefaultDownloaderImpl) GetLicenses() (licenses *List, err error) {
-	// TODO: Cache licenselist
 	logrus.Info("Downloading main SPDX license data from " + LicenseDataURL)
 
 	// Get the list of licenses
-	licensesJSON, err := http.NewAgent().Get(LicenseDataURL + LicenseListFilename)
+	licenseListURL := LicenseDataURL + LicenseListFilename
+	licenseList, err := ddi.getLicenseListFromURL(licenseListURL)
 	if err != nil {
-		return nil, errors.Wrap(err, "fetching licenses list")
-	}
-
-	licenseList := &List{}
-	if err := json.Unmarshal(licensesJSON, licenseList); err != nil {
-		return nil, errors.Wrap(err, "parsing SPDX licence list")
+		return nil, err
 	}
 
 	logrus.Infof("Read data for %d licenses. Downloading.", len(licenseList.LicenseData))
@@ -164,7 +159,7 @@ func (ddi *DefaultDownloaderImpl) GetLicenses() (licenses *List, err error) {
 			licURL = LicenseDataURL + strings.TrimPrefix(licURL, "./")
 		}
 		// Launch a goroutine to fetch the URL.
-		go func(url string) {
+		go func(url string, metadata ListEntry) {
 			var lic *License
 			defer t.Done(err)
 			lic, err = ddi.getLicenseFromURL(url)
@@ -174,7 +169,8 @@ func (ddi *DefaultDownloaderImpl) GetLicenses() (licenses *List, err error) {
 			}
 			logrus.Debugf("Got license: %s from %s", l.LicenseID, url)
 			licenseList.Add(lic)
-		}(licURL)
+			licenseList.AddMetadata(&metadata)
+		}(licURL, l)
 		t.Throttle()
 	}
 
@@ -230,35 +226,58 @@ func (ddi *DefaultDownloaderImpl) getCachedData(url string) ([]byte, error) {
 	return licensesJSON, nil
 }
 
-// getLicenseFromURL downloads a license in json and returns it parsed into a struct
-func (ddi *DefaultDownloaderImpl) getLicenseFromURL(url string) (license *License, err error) {
-	licenseJSON := []byte{}
+func (ddi *DefaultDownloaderImpl) getByteDataFromURL(url string) (data []byte, err error) {
+	data = []byte{}
 	// Determine the cache file name
 	if ddi.Options.EnableCache {
-		licenseJSON, err = ddi.getCachedData(url)
+		data, err = ddi.getCachedData(url)
 		if err != nil {
 			return nil, errors.Wrap(err, "checking download cache")
 		}
-		if len(licenseJSON) > 0 {
+		if len(data) > 0 {
 			logrus.Debugf("Data for %s is already cached", url)
 		}
 	}
 
 	// If we still don't have json data, download it
-	if len(licenseJSON) == 0 {
+	if len(data) == 0 {
 		logrus.Infof("Downloading license data from %s", url)
-		licenseJSON, err = http.NewAgent().Get(url)
+		data, err = http.NewAgent().Get(url)
 		if err != nil {
 			return nil, errors.Wrapf(err, "getting %s", url)
 		}
 
-		logrus.Infof("Downloaded %d bytes from %s", len(licenseJSON), url)
+		logrus.Infof("Downloaded %d bytes from %s", len(data), url)
 
 		if ddi.Options.EnableCache {
-			if err := ddi.cacheData(url, licenseJSON); err != nil {
+			if err := ddi.cacheData(url, data); err != nil {
 				return nil, errors.Wrap(err, "caching url data")
 			}
 		}
+	}
+
+	return data, nil
+}
+
+// getLicenseListFromURL downloads a license list in json and returns it parsed into a struct
+func (ddi *DefaultDownloaderImpl) getLicenseListFromURL(url string) (licenseList *List, err error) {
+	licensesListJSON, err := ddi.getByteDataFromURL(url)
+	if err != nil {
+		return nil, err
+	}
+
+	licenseList = &List{}
+	if err := json.Unmarshal(licensesListJSON, licenseList); err != nil {
+		return nil, errors.Wrap(err, "parsing SPDX licence list")
+	}
+	return licenseList, nil
+}
+
+// getLicenseFromURL downloads a license in json and returns it parsed into a struct
+func (ddi *DefaultDownloaderImpl) getLicenseFromURL(url string) (license *License, err error) {
+	licenseJSON, err := ddi.getByteDataFromURL(url)
+	if err != nil {
+		return nil, err
 	}
 
 	// Parse the SPDX license from the JSON data
@@ -266,5 +285,5 @@ func (ddi *DefaultDownloaderImpl) getLicenseFromURL(url string) (license *Licens
 	if err != nil {
 		return nil, errors.Wrap(err, "parsing license json data")
 	}
-	return l, err
+	return l, nil
 }

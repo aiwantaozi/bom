@@ -118,3 +118,12 @@ func (catalog *Catalog) GetLicense(label string) *License {
 	logrus.Warn("Label %s is not an identifier of a known license " + label)
 	return nil
 }
+
+// GetLicenseMetadata returns a license metadata struct from its SPDX ID label
+func (catalog *Catalog) GetLicenseMetadata(label string) *ListEntry {
+	if lic, ok := catalog.List.LicenseMetadata[label]; ok {
+		return lic
+	}
+	logrus.Warn("Label %s is not an identifier of a known license metadata " + label)
+	return nil
+}

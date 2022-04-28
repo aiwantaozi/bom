@@ -304,6 +304,7 @@ type List struct {
 	ReleaseDateString string      `json:"releaseDate "`
 	LicenseData       []ListEntry `json:"licenses"`
 	Licenses          map[string]*License
+	LicenseMetadata   map[string]*ListEntry
 }
 
 // Add appends a license to the license list
@@ -314,6 +315,16 @@ func (list *List) Add(license *License) {
 		list.Licenses = map[string]*License{}
 	}
 	list.Licenses[license.LicenseID] = license
+}
+
+// Add appends a license to the license list
+func (list *List) AddMetadata(licenseMetadata *ListEntry) {
+	list.Lock()
+	defer list.Unlock()
+	if list.LicenseMetadata == nil {
+		list.LicenseMetadata = map[string]*ListEntry{}
+	}
+	list.LicenseMetadata[licenseMetadata.LicenseID] = licenseMetadata
 }
 
 // SPDXLicense is a license described in JSON
